@@ -6,7 +6,7 @@
 
   "permissions": [
     "storage",
-    "webRequest"
+    "activeTab"
   ],
 
   "host_permissions": [
@@ -22,7 +22,18 @@
     {
       "matches": [
         "https://monitor.cloud.com/*",
-        "https://*.monitor.cloud.com/*"
+        "https://*.monitor.cloud.com/*",
+        "https://*.cloud.com/monitor*"
+      ],
+      "js": ["inject.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://monitor.cloud.com/*",
+        "https://*.monitor.cloud.com/*",
+        "https://*.cloud.com/monitor*"
       ],
       "js": ["content.js"],
       "css": ["styles.css"],
