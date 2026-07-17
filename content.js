@@ -1,25 +1,37 @@
 /**
  * content.js — Citrix Monitor Enhanced
  *
- * Watches for navigation within the Monitor SPA and injects the
- * enhanced detail panel when a session or machine detail view is active.
+ * Listens for calls that inject.js observed Director's own UI making
+ * (via window.postMessage), extracts context IDs (siteId/sessionId/
+ * userId/machineId) and response data from them, and renders an
+ * enhanced panel using that data. Falls back to an on-demand POST
+ * (relayed through background.js) only for fields not already covered
+ * by traffic Director's UI naturally generates.
  */
 
 (function () {
   'use strict';
 
-  let lastUrl = location.href;
-  let panelMounted = false;
   let settings = {};
+  let panelMounted = false;
 
-  // ── Bootstrap ──────────────────────────────────────────────────────────────
+  // Latest known identifiers for whatever session/machine is on screen
+  const ctx = {
+    directorBase: null,
+    siteId: null,
+    sessionId: null,
+    userId: null,
+    machineId: null,
+  };
+
+  // Raw captured responses, keyed by Director method name
+  const captured = {};
 
   init();
 
   async function init() {
     settings = await loadSettings();
-    observeNavigation();
-    tryMount();
+    window.addEventListener('message', handleInjectedMessage);
   }
 
   function loadSettings() {
@@ -30,92 +42,77 @@
     });
   }
 
-  // ── SPA navigation observer ────────────────────────────────────────────────
-  // Citrix Monitor is an Angular SPA — URL changes don't trigger page reloads.
+  // ── Ingest snooped Director traffic ──────────────────────────────────────
 
-  function observeNavigation() {
-    // Watch for URL changes via MutationObserver on the document title
-    // (reliable across Angular router transitions)
-    const titleObserver = new MutationObserver(() => {
-      if (location.href !== lastUrl) {
-        lastUrl = location.href;
-        panelMounted = false;
-        // Small delay to let Angular finish rendering the new view
-        setTimeout(tryMount, 800);
-      }
-    });
+  function handleInjectedMessage(event) {
+    if (event.source !== window) return;
+    const msg = event.data;
+    if (!msg || msg.source !== 'CME_INJECT') return;
 
-    titleObserver.observe(document.querySelector('title') || document.head, {
-      subtree: true,
-      characterData: true,
-      childList: true,
-    });
+    // Update known context from whatever this call's request body carried
+    const req = msg.request || {};
+    if (req.siteId) ctx.siteId = req.siteId;
+    if (req.sessionId) ctx.sessionId = req.sessionId;
+    if (req.userId) ctx.userId = req.userId;
+    if (req.machineId) ctx.machineId = req.machineId;
+    ctx.directorBase = msg.origin;
 
-    // Also observe DOM mutations for the detail container appearing
-    const domObserver = new MutationObserver(() => {
-      if (!panelMounted) tryMount();
-    });
+    // Stash the response so we can render from it directly — no need to
+    // re-request data Director's own UI already fetched for us.
+    captured[msg.method] = msg.response;
 
-    domObserver.observe(document.body, {
-      childList: true,
-      subtree: true,
-    });
+    // Any of these methods appearing means there's fresh detail data to show
+    const RELEVANT = [
+      'GetUserLogonDurationData',
+      'GetMachineCompleteData',
+      'GetMachineDynamicData',
+      'GetMachineTroubleshootingData',
+      'GetSessionData',
+    ];
+    if (RELEVANT.includes(msg.method)) {
+      scheduleRender();
+    }
   }
 
-  // ── Page detection ─────────────────────────────────────────────────────────
-
-  function detectPageContext() {
-    const url = location.href;
-
-    // Session detail: /Sessions/{sessionKey} or ?sessionid=
-    const sessionMatch =
-      url.match(/[?&]sessionid=([^&]+)/i) ||
-      url.match(/\/sessions\/([a-z0-9-]+)/i) ||
-      url.match(/session[Kk]ey[=:]([a-z0-9-]+)/);
-
-    // Machine detail: /Machines/{machineId} or ?machineid=
-    const machineMatch =
-      url.match(/[?&]machineid=([^&]+)/i) ||
-      url.match(/\/machines\/([a-z0-9-]+)/i);
-
-    // User detail: /Users/{userId}
-    const userMatch =
-      url.match(/[?&]userid=([^&]+)/i) ||
-      url.match(/\/users\/([a-z0-9-]+)/i);
-
-    if (sessionMatch) return { type: 'session', id: sessionMatch[1] };
-    if (machineMatch) return { type: 'machine', id: machineMatch[1] };
-    if (userMatch)    return { type: 'user',    id: userMatch[1] };
-
-    // Also check for Angular route state embedded in the page
-    // Monitor encodes context in aria labels and headings
-    const heading = document.querySelector('h1, [data-testid="detail-title"], .details-header');
-    if (heading) {
-      const text = heading.textContent.trim();
-      if (text) return { type: 'unknown', label: text };
-    }
-
-    return null;
+  let renderTimer = null;
+  function scheduleRender() {
+    // Debounce — several Director calls often land within the same burst
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(mountOrUpdatePanel, 400);
   }
 
   // ── Panel mounting ─────────────────────────────────────────────────────────
 
-  function tryMount() {
-    if (panelMounted) return;
+  function mountOrUpdatePanel() {
+    const layout = settings.layoutMode || 'inline';
+    let root = document.getElementById('cme-panel-root');
 
-    const ctx = detectPageContext();
-    if (!ctx) return;
+    if (!root) {
+      root = document.createElement('div');
+      root.id = 'cme-panel-root';
+      root.className = `cme-panel cme-layout-${layout}`;
 
-    // Find a suitable anchor in the Monitor DOM to attach our panel
-    const anchor = findAnchor();
-    if (!anchor) return;
+      if (layout === 'popup') return; // rendered via toolbar popup instead
 
-    panelMounted = true;
-    mountPanel(anchor, ctx);
+      if (layout === 'floating' || layout === 'drawer') {
+        document.body.appendChild(root);
+        if (layout === 'floating') makeDraggable(root);
+        if (layout === 'drawer') addDrawerToggle(root);
+      } else {
+        const anchor = findAnchor();
+        if (!anchor) {
+          document.body.appendChild(root); // fall back rather than silently drop
+        } else {
+          anchor.insertAdjacentElement('afterend', root);
+        }
+      }
+      panelMounted = true;
+    }
+
+    renderPanel(root);
   }
 
   function findAnchor() {
-    // Citrix Monitor detail pages use consistent container class names
     const candidates = [
       '.details-container',
       '.monitor-details',
@@ -125,7 +122,6 @@
       '#content',
       '.content-area',
     ];
-
     for (const selector of candidates) {
       const el = document.querySelector(selector);
       if (el) return el;
@@ -133,338 +129,53 @@
     return null;
   }
 
-  function mountPanel(anchor, ctx) {
-    // Remove any previously mounted panel
-    document.getElementById('cme-panel-root')?.remove();
-
-    const root = document.createElement('div');
-    root.id = 'cme-panel-root';
-    root.setAttribute('data-cme-layout', settings.layoutMode || 'inline');
-    root.setAttribute('data-cme-context', ctx.type);
-
-    // Apply layout wrapper class
-    const layout = settings.layoutMode || 'inline';
-    root.className = `cme-panel cme-layout-${layout}`;
-
-    // Render loading skeleton
-    root.innerHTML = buildLoadingSkeleton(ctx);
-
-    // Insert based on layout mode
-    switch (layout) {
-      case 'floating':
-        document.body.appendChild(root);
-        makeDraggable(root);
-        break;
-      case 'drawer':
-        document.body.appendChild(root);
-        addDrawerToggle(root);
-        break;
-      case 'popup':
-        // Popup layout is handled by popup.html — skip injection
-        panelMounted = false;
-        return;
-      case 'inline':
-      default:
-        anchor.insertAdjacentElement('afterend', root);
-        break;
-    }
-
-    // Fetch and render data
-    fetchAndRender(root, ctx);
-  }
-
-  // ── Data fetching ──────────────────────────────────────────────────────────
-
-  async function fetchAndRender(root, ctx) {
-    let tokenResult;
-    try {
-      tokenResult = await getToken();
-    } catch (e) {
-      renderError(root, 'Could not retrieve session token. Make sure Citrix Monitor is open and you are logged in.', ctx);
-      return;
-    }
-
-    if (tokenResult.error) {
-      renderError(root, tokenResult.error, ctx);
-      return;
-    }
-
-    const { token, stale } = tokenResult;
-
-    // Derive customer ID from the current URL (cloud.com subdomain)
-    const customerIdMatch = location.hostname.match(/^([^.]+)\.monitor\.cloud\.com/) ||
-                            location.href.match(/customerId=([^&]+)/);
-    const customerId = customerIdMatch?.[1] || '';
-
-    const baseUrl = location.origin;
-
-    try {
-      const data = await fetchODataFields(baseUrl, customerId, token, ctx);
-      renderPanel(root, ctx, data, { stale });
-    } catch (e) {
-      renderError(root, `OData fetch failed: ${e.message}`, ctx);
-    }
-  }
-
-  function getToken() {
-    return new Promise((resolve, reject) => {
-      try {
-        chrome.runtime.sendMessage({ type: 'GET_TOKEN' }, (response) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-          } else {
-            resolve(response || { error: 'No response from background' });
-          }
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  async function fetchODataFields(baseUrl, customerId, token, ctx) {
-    const headers = {
-      'Authorization': `CWSAuth bearer="${token}"`,
-      'Accept': 'application/json',
-      'Citrix-CustomerId': customerId,
-    };
-
-    const results = {};
-
-    if (ctx.type === 'session' && settings.showLogonDuration !== false) {
-      results.logon = await fetchLogonData(baseUrl, ctx.id, headers);
-    }
-
-    if ((ctx.type === 'machine' || ctx.type === 'session') && settings.showVdaInfo !== false) {
-      results.vda = await fetchVdaData(baseUrl, ctx.id, ctx.type, headers);
-    }
-
-    if (ctx.type === 'machine' && settings.showMachineInfo !== false) {
-      results.machine = await fetchMachineData(baseUrl, ctx.id, headers);
-    }
-
-    if (settings.customFields?.length > 0) {
-      results.custom = await fetchCustomFields(baseUrl, ctx, headers, settings.customFields);
-    }
-
-    return results;
-  }
-
-  async function fetchLogonData(baseUrl, sessionId, headers) {
-    // Monitor OData endpoint for session logon details
-    const url = `${baseUrl}/monitorodata/Sessions(${encodeURIComponent(sessionId)})?$select=LogOnStartDate,LogOnEndDate,SessionKey,ConnectionState,ClientAddress,ClientName,Protocol,SmartAccessFilters`;
-    const res = await safeFetch(url, { headers });
-    if (!res.ok) throw new Error(`Sessions OData: ${res.status}`);
-    const json = await res.json();
-    const s = json;
-
-    const logonMs = s.LogOnStartDate && s.LogOnEndDate
-      ? new Date(s.LogOnEndDate) - new Date(s.LogOnStartDate)
-      : null;
-
-    // Fetch logon duration breakdown if available
-    let breakdown = null;
-    try {
-      const bUrl = `${baseUrl}/monitorodata/Sessions(${encodeURIComponent(sessionId)})/LogOnDurationBreakdown`;
-      const bRes = await safeFetch(bUrl, { headers });
-      if (bRes.ok) breakdown = await bRes.json();
-    } catch (_) { /* endpoint may not exist on all versions */ }
-
-    return {
-      logonDurationMs: logonMs,
-      logonStart: s.LogOnStartDate,
-      logonEnd: s.LogOnEndDate,
-      connectionState: s.ConnectionState,
-      clientAddress: s.ClientAddress,
-      clientName: s.ClientName,
-      protocol: s.Protocol,
-      breakdown,
-    };
-  }
-
-  async function fetchVdaData(baseUrl, id, type, headers) {
-    let url;
-    if (type === 'session') {
-      url = `${baseUrl}/monitorodata/Sessions(${encodeURIComponent(id)})/Machine?$select=Name,AgentVersion,OSType,OSVersion,IPAddress,CurrentRegistrationState,LastDeregistrationReason,LastDeregistrationTime,IsAssigned,HostedMachineName,HypervisorConnectionName`;
-    } else {
-      url = `${baseUrl}/monitorodata/Machines(${encodeURIComponent(id)})?$select=Name,AgentVersion,OSType,OSVersion,IPAddress,CurrentRegistrationState,LastDeregistrationReason,LastDeregistrationTime,IsAssigned,HostedMachineName,HypervisorConnectionName`;
-    }
-    const res = await safeFetch(url, { headers });
-    if (!res.ok) return null;
-    return res.json();
-  }
-
-  async function fetchMachineData(baseUrl, machineId, headers) {
-    const url = `${baseUrl}/monitorodata/Machines(${encodeURIComponent(machineId)})?$select=Name,AgentVersion,OSType,OSVersion,IPAddress,Sid,IsAssigned,AssociatedUserNames,HostedMachineName,HypervisorConnectionName,CurrentRegistrationState,LastDeregistrationReason,LastDeregistrationTime,FailureDate,FaultState,Tags`;
-    const res = await safeFetch(url, { headers });
-    if (!res.ok) return null;
-    return res.json();
-  }
-
-  async function fetchCustomFields(baseUrl, ctx, headers, customFields) {
-    // Build a minimal OData query for user-defined fields
-    const entityMap = { session: 'Sessions', machine: 'Machines', user: 'Users' };
-    const entity = entityMap[ctx.type] || 'Sessions';
-    const select = customFields.join(',');
-    const url = `${baseUrl}/monitorodata/${entity}(${encodeURIComponent(ctx.id)})?$select=${encodeURIComponent(select)}`;
-    try {
-      const res = await safeFetch(url, { headers });
-      if (!res.ok) return null;
-      return res.json();
-    } catch (_) { return null; }
-  }
-
-  async function safeFetch(url, options) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    try {
-      return await fetch(url, { ...options, signal: controller.signal });
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
   // ── Rendering ──────────────────────────────────────────────────────────────
 
-  function buildLoadingSkeleton(ctx) {
-    return `
-      <div class="cme-header">
-        <span class="cme-logo">⬡</span>
-        <span class="cme-title">Monitor Enhanced</span>
-        <span class="cme-context-badge">${escHtml(ctx.type)}</span>
-        <div class="cme-header-actions">
-          <button class="cme-btn-icon" id="cme-refresh" title="Refresh">↻</button>
-          <button class="cme-btn-icon" id="cme-settings" title="Settings">⚙</button>
-          <button class="cme-btn-icon" id="cme-close" title="Close">✕</button>
-        </div>
-      </div>
-      <div class="cme-body">
-        <div class="cme-skeleton">
-          <div class="cme-skeleton-row"></div>
-          <div class="cme-skeleton-row short"></div>
-          <div class="cme-skeleton-row"></div>
-          <div class="cme-skeleton-row short"></div>
-        </div>
-      </div>`;
-  }
-
-  function renderPanel(root, ctx, data, meta) {
+  function renderPanel(root) {
     const sections = [];
 
-    if (data.logon) sections.push(buildLogonSection(data.logon));
-    if (data.vda)   sections.push(buildVdaSection(data.vda));
-    if (data.machine) sections.push(buildMachineSection(data.machine));
-    if (data.custom)  sections.push(buildCustomSection(data.custom, settings.customFields));
+    const logon = captured['GetUserLogonDurationData'];
+    if (logon && settings.showLogonDuration !== false) {
+      sections.push(buildLogonSection(unwrap(logon, 'GetUserLogonDurationDataResult')));
+    }
 
-    const staleWarning = meta.stale
-      ? `<div class="cme-warning">⚠ Token may be expiring — reload Monitor if data fails to load.</div>`
-      : '';
+    const machine = captured['GetMachineCompleteData'];
+    if (machine && (settings.showVdaInfo !== false || settings.showMachineInfo !== false)) {
+      const m = unwrap(machine, 'GetMachineCompleteDataResult');
+      if (settings.showVdaInfo !== false) sections.push(buildVdaSection(m));
+      if (settings.showMachineInfo !== false) sections.push(buildMachineSection(m));
+    }
+
+    if (settings.customFields?.length) {
+      sections.push(buildCustomSection());
+    }
+
+    if (!sections.length) {
+      root.innerHTML = buildWaitingState();
+      bindPanelEvents(root);
+      return;
+    }
 
     root.innerHTML = `
       <div class="cme-header">
         <span class="cme-logo">⬡</span>
         <span class="cme-title">Monitor Enhanced</span>
-        <span class="cme-context-badge">${escHtml(ctx.type)}</span>
         <div class="cme-header-actions">
-          <button class="cme-btn-icon" id="cme-refresh" title="Refresh">↻</button>
+          <button class="cme-btn-icon" id="cme-refresh" title="Refresh from Director">↻</button>
           <button class="cme-btn-icon" id="cme-settings" title="Settings">⚙</button>
           <button class="cme-btn-icon" id="cme-close" title="Close">✕</button>
         </div>
       </div>
-      ${staleWarning}
-      <div class="cme-body">
-        ${sections.join('')}
-      </div>
+      <div class="cme-body">${sections.join('')}</div>
       <div class="cme-footer">
         <span>Citrix Monitor Enhanced • <a href="#" id="cme-open-options">Configure fields</a></span>
       </div>`;
 
-    bindPanelEvents(root, ctx);
+    bindPanelEvents(root);
   }
 
-  function buildLogonSection(d) {
-    const dur = d.logonDurationMs != null
-      ? formatDuration(d.logonDurationMs)
-      : '—';
-
-    let breakdownRows = '';
-    if (d.breakdown?.value?.length) {
-      breakdownRows = d.breakdown.value.map(b =>
-        `<div class="cme-breakdown-row">
-          <span class="cme-breakdown-label">${escHtml(b.PhaseName || b.Name || 'Phase')}</span>
-          <span class="cme-breakdown-bar-wrap">
-            <span class="cme-breakdown-bar" style="width:${Math.min(100, (b.DurationMs / d.logonDurationMs) * 100).toFixed(1)}%"></span>
-          </span>
-          <span class="cme-breakdown-val">${formatDuration(b.DurationMs)}</span>
-        </div>`
-      ).join('');
-    }
-
+  function buildWaitingState() {
     return `
-      <section class="cme-section">
-        <h3 class="cme-section-title">Logon Duration</h3>
-        <div class="cme-fields">
-          ${field('Total Duration', dur)}
-          ${field('Logon Start', formatDate(d.logonStart))}
-          ${field('Logon End', formatDate(d.logonEnd))}
-          ${field('Protocol', d.protocol || '—')}
-          ${field('Connection State', d.connectionState || '—')}
-          ${field('Client Name', d.clientName || '—')}
-          ${field('Client Address', d.clientAddress || '—')}
-        </div>
-        ${breakdownRows ? `<div class="cme-breakdown">${breakdownRows}</div>` : ''}
-      </section>`;
-  }
-
-  function buildVdaSection(d) {
-    if (!d) return '';
-    return `
-      <section class="cme-section">
-        <h3 class="cme-section-title">VDA / Agent</h3>
-        <div class="cme-fields">
-          ${field('Machine Name', d.Name || '—')}
-          ${field('Agent Version', d.AgentVersion || '—')}
-          ${field('OS Type', d.OSType || '—')}
-          ${field('OS Version', d.OSVersion || '—')}
-          ${field('IP Address', d.IPAddress || '—')}
-          ${field('Registration State', d.CurrentRegistrationState || '—')}
-          ${field('Last Deregistration', d.LastDeregistrationReason || '—')}
-          ${field('Hypervisor', d.HypervisorConnectionName || '—')}
-        </div>
-      </section>`;
-  }
-
-  function buildMachineSection(d) {
-    if (!d) return '';
-    const users = Array.isArray(d.AssociatedUserNames)
-      ? d.AssociatedUserNames.join(', ')
-      : (d.AssociatedUserNames || '—');
-
-    return `
-      <section class="cme-section">
-        <h3 class="cme-section-title">Machine Details</h3>
-        <div class="cme-fields">
-          ${field('Hosted Name', d.HostedMachineName || '—')}
-          ${field('Assigned', d.IsAssigned ? 'Yes' : 'No')}
-          ${field('Associated Users', users)}
-          ${field('Fault State', d.FaultState || '—')}
-          ${field('SID', d.Sid || '—')}
-        </div>
-      </section>`;
-  }
-
-  function buildCustomSection(d, fields) {
-    if (!d || !fields?.length) return '';
-    const rows = fields.map(f => field(f, d[f] != null ? String(d[f]) : '—')).join('');
-    return `
-      <section class="cme-section">
-        <h3 class="cme-section-title">Custom Fields</h3>
-        <div class="cme-fields">${rows}</div>
-      </section>`;
-  }
-
-  function renderError(root, message, ctx) {
-    root.innerHTML = `
       <div class="cme-header">
         <span class="cme-logo">⬡</span>
         <span class="cme-title">Monitor Enhanced</span>
@@ -474,29 +185,181 @@
       </div>
       <div class="cme-body">
         <div class="cme-error">
-          <span class="cme-error-icon">⚠</span>
-          <p>${escHtml(message)}</p>
-          <button class="cme-btn" id="cme-retry">Retry</button>
+          <p>Waiting for session/machine data — open a session or machine detail view in Director to populate this panel.</p>
         </div>
       </div>`;
+  }
 
-    root.querySelector('#cme-close')?.addEventListener('click', () => root.remove());
-    root.querySelector('#cme-retry')?.addEventListener('click', () => {
-      root.innerHTML = buildLoadingSkeleton(ctx);
-      fetchAndRender(root, ctx);
+  function unwrap(obj, resultKey) {
+    return obj?.[resultKey] || obj;
+  }
+
+  function buildLogonSection(d) {
+    const dur = d.LogonDurationInMS != null ? formatDuration(d.LogonDurationInMS) : '—';
+    const userAvgMs = d.AverageLogonDurationForUserInMS;
+    const dgAvgMs = d.AverageLogonDurationForDeliveryGroupInMS;
+    const userAvg = userAvgMs != null ? formatDuration(userAvgMs) : null;
+    const dgAvg = dgAvgMs != null ? formatDuration(dgAvgMs) : null;
+
+    const breakdown = d.LogonDurationBreakdownInMS;
+    let breakdownRows = '';
+    if (breakdown && typeof breakdown === 'object') {
+      const total = d.LogonDurationInMS || Object.values(breakdown).reduce((a, b) => a + b, 0);
+      breakdownRows = Object.entries(breakdown)
+        .filter(([, ms]) => ms > 0)
+        .sort(([, a], [, b]) => b - a)
+        .map(([phase, ms]) => `
+          <div class="cme-breakdown-row">
+            <span class="cme-breakdown-label">${escHtml(splitCamelCase(phase))}</span>
+            <span class="cme-breakdown-bar-wrap">
+              <span class="cme-breakdown-bar" style="width:${Math.min(100, (ms / total) * 100).toFixed(1)}%"></span>
+            </span>
+            <span class="cme-breakdown-val">${formatDuration(ms)}</span>
+          </div>`)
+        .join('');
+    }
+
+    return `
+      <section class="cme-section">
+        <h3 class="cme-section-title">Logon Duration</h3>
+        <div class="cme-fields">
+          ${field('Total Duration', dur)}
+          ${field('Logon Time', formatDate(d.LogonTime))}
+          ${userAvg ? field("User's Average", userAvg) : ''}
+          ${dgAvg ? field('Delivery Group Average', dgAvg) : ''}
+        </div>
+        ${breakdownRows ? `<div class="cme-breakdown">${breakdownRows}</div>` : ''}
+      </section>`;
+  }
+
+  function buildVdaSection(d) {
+    return `
+      <section class="cme-section">
+        <h3 class="cme-section-title">VDA / Agent</h3>
+        <div class="cme-fields">
+          ${field('Hosted Machine Name', d.HostedMachineName || '—')}
+          ${field('Agent Version', d.AgentVersion || '—')}
+          ${field('OS Type', d.OSType || '—')}
+          ${field('IP Address', d.IPAddress || '—')}
+          ${field('Registration State', d.RegistrationState || '—')}
+          ${field('Power State', d.PowerState || '—')}
+          ${field('In Maintenance Mode', d.InMaintenanceMode ? 'Yes' : 'No')}
+          ${field('Hypervisor', d.HypervisorConnectionName || '—')}
+          ${field('Hosting Server', d.HostingServerName || '—')}
+        </div>
+      </section>`;
+  }
+
+  function buildMachineSection(d) {
+    return `
+      <section class="cme-section">
+        <h3 class="cme-section-title">Machine Details</h3>
+        <div class="cme-fields">
+          ${field('Catalog', d.CatalogName || '—')}
+          ${field('Desktop Kind', d.Desktopkind || d.DesktopKind || '—')}
+          ${field('Zone', d.ZoneName || '—')}
+          ${field('Organizational Unit', d.OrganizationalUnit || '—')}
+          ${field('Last Upgrade State', d.LastUpgradeState || '—')}
+          ${field('Last Upgrade Date', formatDate(d.LastUpgradeStateChangeDate))}
+          ${field('Remote PC', d.RemotePC ? 'Yes' : 'No')}
+        </div>
+      </section>`;
+  }
+
+  function buildCustomSection() {
+    // Search every captured response for each requested field name
+    const rows = settings.customFields
+      .filter(Boolean)
+      .map((fieldName) => {
+        let value;
+        for (const resp of Object.values(captured)) {
+          const unwrapped = resp && typeof resp === 'object'
+            ? (Object.values(resp)[0]?.[fieldName] !== undefined ? Object.values(resp)[0] : resp)
+            : resp;
+          if (unwrapped && unwrapped[fieldName] !== undefined) {
+            value = unwrapped[fieldName];
+            break;
+          }
+        }
+        return field(fieldName, value != null ? String(value) : 'not found in captured data');
+      })
+      .join('');
+
+    return `
+      <section class="cme-section">
+        <h3 class="cme-section-title">Custom Fields</h3>
+        <div class="cme-fields">${rows}</div>
+      </section>`;
+  }
+
+  // ── Manual refresh (relayed through background for CORS/cookie reasons) ────
+
+  function refreshFromDirector() {
+    if (!ctx.directorBase || !ctx.siteId) {
+      return Promise.reject(new Error('No context captured yet — open a session/machine in Director first.'));
+    }
+
+    const calls = [];
+
+    if (ctx.sessionId && ctx.userId) {
+      calls.push(
+        directorPost('GetUserLogonDurationData', {
+          siteId: ctx.siteId,
+          sessionId: ctx.sessionId,
+          userId: ctx.userId,
+        }).then((data) => { captured['GetUserLogonDurationData'] = data; })
+      );
+    }
+
+    if (ctx.machineId) {
+      calls.push(
+        directorPost('GetMachineCompleteData', {
+          siteId: ctx.siteId,
+          machineId: ctx.machineId,
+        }).then((data) => { captured['GetMachineCompleteData'] = data; })
+      );
+    }
+
+    return Promise.all(calls);
+  }
+
+  function directorPost(method, body) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { type: 'DIRECTOR_POST', directorBase: ctx.directorBase, method, body },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else if (!response?.ok) {
+            reject(new Error(response?.error || 'Unknown error'));
+          } else {
+            resolve(response.data);
+          }
+        }
+      );
     });
   }
 
-  function bindPanelEvents(root, ctx) {
+  // ── Panel chrome (drag / drawer / events) ───────────────────────────────────
+
+  function bindPanelEvents(root) {
     root.querySelector('#cme-close')?.addEventListener('click', () => {
       root.remove();
       panelMounted = false;
     });
 
-    root.querySelector('#cme-refresh')?.addEventListener('click', () => {
-      root.innerHTML = buildLoadingSkeleton(ctx);
-      panelMounted = true;
-      fetchAndRender(root, ctx);
+    root.querySelector('#cme-refresh')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.textContent = '⟳';
+      try {
+        await refreshFromDirector();
+        renderPanel(root);
+      } catch (err) {
+        const body = root.querySelector('.cme-body');
+        if (body) body.insertAdjacentHTML('afterbegin', `<div class="cme-warning">⚠ ${escHtml(err.message)}</div>`);
+      } finally {
+        btn.textContent = '↻';
+      }
     });
 
     root.querySelector('#cme-settings')?.addEventListener('click', () => {
@@ -509,13 +372,10 @@
     });
   }
 
-  // ── Floating panel drag support ────────────────────────────────────────────
-
   function makeDraggable(el) {
     const header = el.querySelector('.cme-header');
     if (!header) return;
     let startX, startY, startLeft, startTop;
-
     header.style.cursor = 'move';
     header.addEventListener('mousedown', (e) => {
       startX = e.clientX;
@@ -523,10 +383,9 @@
       const rect = el.getBoundingClientRect();
       startLeft = rect.left;
       startTop = rect.top;
-
       const onMove = (e) => {
         el.style.left = `${startLeft + e.clientX - startX}px`;
-        el.style.top  = `${startTop  + e.clientY - startY}px`;
+        el.style.top = `${startTop + e.clientY - startY}px`;
         el.style.right = 'auto';
         el.style.bottom = 'auto';
       };
@@ -539,18 +398,14 @@
     });
   }
 
-  // ── Drawer toggle ──────────────────────────────────────────────────────────
-
   function addDrawerToggle(el) {
+    if (document.getElementById('cme-drawer-toggle')) return;
     const toggle = document.createElement('button');
     toggle.id = 'cme-drawer-toggle';
     toggle.title = 'Toggle Monitor Enhanced';
     toggle.textContent = '⬡';
     document.body.appendChild(toggle);
-
-    toggle.addEventListener('click', () => {
-      el.classList.toggle('cme-drawer-open');
-    });
+    toggle.addEventListener('click', () => el.classList.toggle('cme-drawer-open'));
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -571,6 +426,10 @@
       .replace(/"/g, '&quot;');
   }
 
+  function splitCamelCase(str) {
+    return str.replace(/([a-z])([A-Z])/g, '$1 $2');
+  }
+
   function formatDuration(ms) {
     if (ms == null || isNaN(ms)) return '—';
     if (ms < 1000) return `${ms}ms`;
@@ -579,11 +438,13 @@
     return `${Math.floor(s / 60)}m ${s % 60}s`;
   }
 
-  function formatDate(iso) {
-    if (!iso) return '—';
+  function formatDate(epochMsOrIso) {
+    if (!epochMsOrIso) return '—';
     try {
-      return new Date(iso).toLocaleString();
-    } catch (_) { return iso; }
+      return new Date(epochMsOrIso).toLocaleString();
+    } catch (_) {
+      return String(epochMsOrIso);
+    }
   }
 
 })();
