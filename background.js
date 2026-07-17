@@ -1,87 +1,38 @@
 /**
  * background.js — Citrix Monitor Enhanced
  *
- * Intercepts outgoing requests to Citrix DaaS APIs to capture the
- * bearer token already present in the active Monitor session.
- * The token is stored in chrome.storage.session (ephemeral — cleared
- * when the browser closes) and shared with content scripts on demand.
+ * No token handling needed — Director's service.svc uses cookie-based
+ * session auth, which the browser attaches automatically.
+ *
+ * This worker's one job: relay on-demand POST requests to Director's
+ * service.svc on behalf of content.js. This has to happen here rather
+ * than in the content script because cross-origin fetches (the Monitor
+ * page's origin vs. the regional director-*.cloud.com origin) need the
+ * extension's host_permissions to bypass CORS — a content script fetch
+ * is still bound by the page's own CORS rules.
  */
 
-const CITRIX_API_PATTERNS = [
-  /https:\/\/[^/]+\.cloud\.com\/monitorodata/,
-  /https:\/\/[^/]+\.cloud\.com\/cvad\/manage/,
-  /https:\/\/[^/]+\.citrixworkspacesapi\.net/,
-];
-
-// ── Token capture via declarativeNetRequest observer ────────────────────────
-// We use webRequest-style header inspection via the background listener.
-// MV3 doesn't have blocking webRequest, but we CAN observe request headers
-// by listening to the onSendHeaders event (requires host_permissions).
-
-chrome.webRequest
-  ? attachWebRequestListener()
-  : console.warn('[CME] webRequest API unavailable — using fallback token entry');
-
-function attachWebRequestListener() {
-  chrome.webRequest.onSendHeaders.addListener(
-    (details) => {
-      const authHeader = details.requestHeaders?.find(
-        (h) => h.name.toLowerCase() === 'authorization'
-      );
-      if (authHeader?.value?.startsWith('CWSAuth bearer=') ||
-          authHeader?.value?.startsWith('Bearer ')) {
-        const token = authHeader.value
-          .replace('CWSAuth bearer=', '')
-          .replace('Bearer ', '')
-          .replace(/^"|"$/g, ''); // strip surrounding quotes if present
-
-        chrome.storage.session.set({
-          citrixToken: token,
-          tokenCapturedAt: Date.now(),
-        });
-      }
-    },
-    {
-      urls: [
-        'https://*.cloud.com/*',
-        'https://*.citrixworkspacesapi.net/*',
-        'http://localhost:8484/*',
-      ],
-    },
-    ['requestHeaders']
-  );
-}
-
-// ── Message handler ──────────────────────────────────────────────────────────
-// Content scripts request the token + customer ID via message passing.
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'GET_TOKEN') {
-    chrome.storage.session.get(['citrixToken', 'tokenCapturedAt'], (result) => {
-      if (!result.citrixToken) {
-        sendResponse({ error: 'No token captured yet. Make sure you are logged in to Citrix Monitor.' });
-        return;
-      }
+  if (message.type === 'DIRECTOR_POST') {
+    const { directorBase, method, body } = message;
 
-      // Warn if token is older than 55 minutes (Citrix tokens typically last 60 min)
-      const ageMinutes = (Date.now() - (result.tokenCapturedAt || 0)) / 60000;
-      sendResponse({
-        token: result.citrixToken,
-        stale: ageMinutes > 55,
-        ageMinutes: Math.round(ageMinutes),
-      });
-    });
+    fetch(`${directorBase}/Director/service.svc/web/${method}`, {
+      method: 'POST',
+      credentials: 'include', // browser attaches the Director session cookie
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((json) => sendResponse({ ok: true, data: json }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+
     return true; // keep channel open for async response
   }
 
-  if (message.type === 'CLEAR_TOKEN') {
-    chrome.storage.session.remove(['citrixToken', 'tokenCapturedAt']);
-    sendResponse({ ok: true });
-    return true;
-  }
-
   if (message.type === 'OPEN_OPTIONS') {
-    // Content scripts can't call openOptionsPage directly — proxy it here
     chrome.runtime.openOptionsPage();
     sendResponse({ ok: true });
     return true;
@@ -90,13 +41,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // ── Install / startup ────────────────────────────────────────────────────────
 chrome.runtime.onInstalled.addListener(() => {
-  // Set defaults
   chrome.storage.sync.get('cmeSettings', (result) => {
     if (!result.cmeSettings) {
       chrome.storage.sync.set({
         cmeSettings: {
           layoutMode: 'inline',       // 'inline' | 'floating' | 'drawer' | 'popup'
-          customFields: [],            // user-defined OData field paths
+          customFields: [],            // field names to pluck from captured Director responses
           showLogonDuration: true,
           showVdaInfo: true,
           showMachineInfo: true,
