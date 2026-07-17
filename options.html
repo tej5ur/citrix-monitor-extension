@@ -353,13 +353,14 @@
 
     <!-- Custom OData fields -->
     <div class="card" style="grid-column: 1 / -1;">
-      <h2 class="card-title">Custom OData Fields</h2>
+      <h2 class="card-title">Custom Fields</h2>
       <div class="custom-fields-list" id="custom-fields-list"></div>
       <button class="btn-add-field" id="btn-add-field">+ Add field</button>
       <p class="field-hint">
-        Enter exact OData property names from the Monitor API —
-        e.g. <code>SmartAccessFilters</code>, <code>ApplicationNames</code>, <code>Tags</code>.
-        These are queried against the Session, Machine, or User entity depending on the active page.
+        Enter exact field names as they appear in Director's own API responses —
+        e.g. <code>PowerState</code>, <code>CatalogName</code>, <code>ZoneName</code>.
+        These are pulled from whatever session/machine data has already been captured
+        while you browse Director; fields not present in captured data will show as not found.
       </p>
     </div>
 
