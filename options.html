@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Citrix Monitor Enhanced — Settings</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    :root {
+      --bg: #111827;
+      --bg-card: #1a2235;
+      --bg-input: #0f172a;
+      --border: #2e3554;
+      --accent: #00b2e3;
+      --accent-dim: #0078a8;
+      --text: #e2e8f0;
+      --text-muted: #8892a4;
+      --text-label: #6b7a99;
+      --radius: 8px;
+    }
+
+    body {
+      font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 32px;
+      min-height: 100vh;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .page-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 32px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .page-logo {
+      font-size: 28px;
+      color: var(--accent);
+    }
+
+    .page-title { font-size: 20px; font-weight: 700; margin: 0; }
+    .page-sub   { font-size: 13px; color: var(--text-muted); margin: 2px 0 0; }
+
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 20px;
+      max-width: 900px;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+
+    .card-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      margin: 0 0 16px;
+    }
+
+    /* Layout picker */
+    .layout-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .layout-option {
+      cursor: pointer;
+      border: 2px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      text-align: center;
+      transition: border-color 0.15s, background 0.15s;
+      user-select: none;
+    }
+
+    .layout-option:hover {
+      border-color: var(--accent-dim);
+    }
+
+    .layout-option.selected {
+      border-color: var(--accent);
+      background: rgba(0,178,227,0.08);
+    }
+
+    .layout-option input[type="radio"] { display: none; }
+
+    .layout-icon {
+      font-size: 24px;
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .layout-name {
+      font-size: 12px;
+      font-weight: 600;
+      display: block;
+    }
+
+    .layout-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      display: block;
+      margin-top: 2px;
+    }
+
+    /* Toggles */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+
+    .toggle-row:last-child { border-bottom: none; }
+
+    .toggle-label { font-size: 13px; }
+    .toggle-sub   { font-size: 11px; color: var(--text-muted); }
+
+    .toggle {
+      position: relative;
+      width: 38px;
+      height: 22px;
+      flex-shrink: 0;
+    }
+
+    .toggle input { opacity: 0; width: 0; height: 0; }
+
+    .toggle-track {
+      position: absolute;
+      inset: 0;
+      background: var(--border);
+      border-radius: 99px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .toggle-track::after {
+      content: '';
+      position: absolute;
+      left: 3px;
+      top: 3px;
+      width: 16px;
+      height: 16px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+
+    .toggle input:checked + .toggle-track {
+      background: var(--accent);
+    }
+
+    .toggle input:checked + .toggle-track::after {
+      transform: translateX(16px);
+    }
+
+    /* Custom fields */
+    .custom-fields-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .custom-field-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .custom-field-row input {
+      flex: 1;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 5px;
+      padding: 7px 10px;
+      font-size: 12px;
+      font-family: 'SF Mono', 'Consolas', monospace;
+    }
+
+    .custom-field-row input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .btn-remove {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 4px;
+      padding: 5px 9px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .btn-remove:hover { color: #ef4444; border-color: #ef4444; }
+
+    .btn-add-field {
+      background: none;
+      border: 1px dashed var(--border);
+      color: var(--text-muted);
+      border-radius: 5px;
+      padding: 7px 12px;
+      cursor: pointer;
+      font-size: 12px;
+      width: 100%;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .btn-add-field:hover { color: var(--accent); border-color: var(--accent); }
+
+    .field-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+
+    /* Save button */
+    .save-row {
+      margin-top: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn-save {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .btn-save:hover { background: var(--accent-dim); }
+
+    .save-status {
+      font-size: 13px;
+      color: #22c55e;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .save-status.visible { opacity: 1; }
+  </style>
+</head>
+<body>
+
+  <header class="page-header">
+    <span class="page-logo">⬡</span>
+    <div>
+      <h1 class="page-title">Citrix Monitor Enhanced</h1>
+      <p class="page-sub">Configure which extra fields to surface and how to display them</p>
+    </div>
+  </header>
+
+  <div class="settings-grid">
+
+    <!-- Layout picker -->
+    <div class="card">
+      <h2 class="card-title">Display Layout</h2>
+      <div class="layout-grid" id="layout-grid">
+
+        <label class="layout-option" data-value="inline">
+          <input type="radio" name="layout" value="inline">
+          <span class="layout-icon">▤</span>
+          <span class="layout-name">Inline</span>
+          <span class="layout-desc">Injected below Monitor's detail cards</span>
+        </label>
+
+        <label class="layout-option" data-value="floating">
+          <input type="radio" name="layout" value="floating">
+          <span class="layout-icon">⧉</span>
+          <span class="layout-name">Floating</span>
+          <span class="layout-desc">Draggable overlay — stays on screen</span>
+        </label>
+
+        <label class="layout-option" data-value="drawer">
+          <input type="radio" name="layout" value="drawer">
+          <span class="layout-icon">◫</span>
+          <span class="layout-name">Side Drawer</span>
+          <span class="layout-desc">Slides in from the right edge</span>
+        </label>
+
+        <label class="layout-option" data-value="popup">
+          <input type="radio" name="layout" value="popup">
+          <span class="layout-icon">⊡</span>
+          <span class="layout-name">Popup</span>
+          <span class="layout-desc">Click the toolbar icon to view details</span>
+        </label>
+
+      </div>
+    </div>
+
+    <!-- Field toggles -->
+    <div class="card">
+      <h2 class="card-title">Built-in Field Groups</h2>
+
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Logon Duration Breakdown</div>
+          <div class="toggle-sub">Phase-by-phase logon timing with bar chart</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="toggle-logon">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">VDA / Agent Info</div>
+          <div class="toggle-sub">Agent version, OS type, registration state</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="toggle-vda">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Machine Details</div>
+          <div class="toggle-sub">Assigned users, fault state, SID, hypervisor</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="toggle-machine">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Custom OData fields -->
+    <div class="card" style="grid-column: 1 / -1;">
+      <h2 class="card-title">Custom OData Fields</h2>
+      <div class="custom-fields-list" id="custom-fields-list"></div>
+      <button class="btn-add-field" id="btn-add-field">+ Add field</button>
+      <p class="field-hint">
+        Enter exact OData property names from the Monitor API —
+        e.g. <code>SmartAccessFilters</code>, <code>ApplicationNames</code>, <code>Tags</code>.
+        These are queried against the Session, Machine, or User entity depending on the active page.
+      </p>
+    </div>
+
+  </div>
+
+  <div class="save-row">
+    <button class="btn-save" id="btn-save">Save Settings</button>
+    <span class="save-status" id="save-status">✓ Saved</span>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

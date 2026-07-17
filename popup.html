@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Citrix Monitor Enhanced</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    :root {
+      --bg: #1a1f2e;
+      --bg-elevated: #232940;
+      --border: #2e3554;
+      --accent: #00b2e3;
+      --text: #e2e8f0;
+      --text-muted: #8892a4;
+      --text-label: #6b7a99;
+    }
+
+    body {
+      font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      width: 360px;
+      min-height: 200px;
+      font-size: 13px;
+    }
+
+    .popup-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .popup-logo { font-size: 20px; color: var(--accent); }
+    .popup-title { font-weight: 600; flex: 1; }
+
+    .popup-body { padding: 12px 14px; }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .status-dot.inactive { background: #ef4444; }
+
+    .popup-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .popup-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      text-align: left;
+      width: 100%;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .popup-btn:hover {
+      border-color: var(--accent);
+      background: rgba(0,178,227,0.06);
+    }
+
+    .popup-btn-icon { font-size: 16px; width: 20px; text-align: center; }
+    .popup-btn-label { flex: 1; font-weight: 500; }
+    .popup-btn-sub { font-size: 11px; color: var(--text-muted); display: block; }
+
+    .popup-footer {
+      padding: 10px 14px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--text-label);
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="popup-header">
+    <span class="popup-logo">⬡</span>
+    <span class="popup-title">Citrix Monitor Enhanced</span>
+  </div>
+
+  <div class="popup-body">
+    <div class="status-row">
+      <span class="status-dot" id="token-dot"></span>
+      <span id="token-status">Checking session…</span>
+    </div>
+
+    <div class="popup-actions">
+      <button class="popup-btn" id="btn-open-options">
+        <span class="popup-btn-icon">⚙</span>
+        <span>
+          <span class="popup-btn-label">Settings</span>
+          <span class="popup-btn-sub">Configure fields, layout, and display options</span>
+        </span>
+      </button>
+
+      <button class="popup-btn" id="btn-clear-token">
+        <span class="popup-btn-icon">🗑</span>
+        <span>
+          <span class="popup-btn-label">Clear Cached Token</span>
+          <span class="popup-btn-sub">Force re-capture on next Monitor page load</span>
+        </span>
+      </button>
+    </div>
+  </div>
+
+  <div class="popup-footer">
+    Navigate to a session or machine detail page in Citrix Monitor to see enhanced fields.
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

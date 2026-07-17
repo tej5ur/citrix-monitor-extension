@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "Citrix Monitor Enhanced",
+  "version": "1.0.0",
+  "description": "Surfaces additional OData fields in Citrix DaaS Monitor — logon duration, VDA info, machine details.",
+
+  "permissions": [
+    "storage",
+    "webRequest"
+  ],
+
+  "host_permissions": [
+    "https://*.cloud.com/*",
+    "https://*.citrixworkspacesapi.net/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": [
+        "https://monitor.cloud.com/*",
+        "https://*.monitor.cloud.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Citrix Monitor Enhanced"
+  },
+
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none';"
+  },
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

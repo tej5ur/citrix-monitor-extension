@@ -1,0 +1,377 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Citrix Monitor Enhanced — Panel Styles
+   Palette mirrors Citrix Monitor's dark UI to feel native.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --cme-bg: #1a1f2e;
+  --cme-bg-elevated: #232940;
+  --cme-bg-section: #1e2436;
+  --cme-border: #2e3554;
+  --cme-accent: #00b2e3;        /* Citrix blue */
+  --cme-accent-dim: #0078a8;
+  --cme-text: #e2e8f0;
+  --cme-text-muted: #8892a4;
+  --cme-text-label: #6b7a99;
+  --cme-warning: #f59e0b;
+  --cme-error: #ef4444;
+  --cme-success: #22c55e;
+  --cme-radius: 6px;
+  --cme-shadow: 0 4px 24px rgba(0,0,0,0.45);
+  --cme-font: -apple-system, 'Segoe UI', system-ui, sans-serif;
+  --cme-font-mono: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  --cme-z: 9000;
+}
+
+/* ── Base panel ─────────────────────────────────────────────────────────────── */
+
+#cme-panel-root {
+  font-family: var(--cme-font);
+  font-size: 13px;
+  color: var(--cme-text);
+  background: var(--cme-bg);
+  border: 1px solid var(--cme-border);
+  border-radius: var(--cme-radius);
+  overflow: hidden;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+#cme-panel-root *,
+#cme-panel-root *::before,
+#cme-panel-root *::after {
+  box-sizing: border-box;
+}
+
+/* ── Layout: Inline (default) ───────────────────────────────────────────────── */
+
+.cme-layout-inline {
+  margin: 16px 0;
+  width: 100%;
+  max-width: 900px;
+}
+
+/* ── Layout: Floating ───────────────────────────────────────────────────────── */
+
+.cme-layout-floating {
+  position: fixed;
+  top: 80px;
+  right: 24px;
+  width: 380px;
+  max-height: 80vh;
+  overflow-y: auto;
+  z-index: var(--cme-z);
+  box-shadow: var(--cme-shadow);
+  resize: both;
+}
+
+/* ── Layout: Drawer ─────────────────────────────────────────────────────────── */
+
+.cme-layout-drawer {
+  position: fixed;
+  top: 0;
+  right: -420px;
+  width: 400px;
+  height: 100vh;
+  overflow-y: auto;
+  z-index: var(--cme-z);
+  box-shadow: var(--cme-shadow);
+  border-radius: 0;
+  border-left: 2px solid var(--cme-accent);
+  transition: right 0.25s ease;
+}
+
+.cme-layout-drawer.cme-drawer-open {
+  right: 0;
+}
+
+/* Drawer toggle button */
+#cme-drawer-toggle {
+  position: fixed;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  z-index: calc(var(--cme-z) + 1);
+  background: var(--cme-accent);
+  color: #fff;
+  border: none;
+  padding: 10px 6px;
+  cursor: pointer;
+  font-size: 18px;
+  border-radius: 6px 0 0 6px;
+  box-shadow: -2px 0 8px rgba(0,0,0,0.3);
+  writing-mode: vertical-lr;
+  letter-spacing: 1px;
+}
+
+#cme-drawer-toggle:hover {
+  background: var(--cme-accent-dim);
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────────── */
+
+.cme-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--cme-bg-elevated);
+  border-bottom: 1px solid var(--cme-border);
+  user-select: none;
+}
+
+.cme-logo {
+  color: var(--cme-accent);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.cme-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--cme-text);
+  flex: 1;
+}
+
+.cme-context-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: rgba(0, 178, 227, 0.15);
+  color: var(--cme-accent);
+  padding: 2px 7px;
+  border-radius: 99px;
+  border: 1px solid rgba(0, 178, 227, 0.3);
+}
+
+.cme-header-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.cme-btn-icon {
+  background: none;
+  border: none;
+  color: var(--cme-text-muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  transition: color 0.15s, background 0.15s;
+}
+
+.cme-btn-icon:hover {
+  color: var(--cme-text);
+  background: rgba(255,255,255,0.07);
+}
+
+/* ── Body ───────────────────────────────────────────────────────────────────── */
+
+.cme-body {
+  padding: 4px 0 8px;
+}
+
+/* ── Sections ───────────────────────────────────────────────────────────────── */
+
+.cme-section {
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid var(--cme-border);
+}
+
+.cme-section:last-child {
+  border-bottom: none;
+}
+
+.cme-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--cme-accent);
+  margin: 0 0 10px;
+  padding: 0;
+}
+
+/* ── Fields grid ────────────────────────────────────────────────────────────── */
+
+.cme-fields {
+  display: grid;
+  grid-template-columns: minmax(140px, auto) 1fr;
+  gap: 4px 12px;
+}
+
+.cme-field {
+  display: contents;
+}
+
+.cme-field-label {
+  color: var(--cme-text-label);
+  font-size: 12px;
+  padding: 3px 0;
+  white-space: nowrap;
+}
+
+.cme-field-value {
+  color: var(--cme-text);
+  font-size: 12px;
+  padding: 3px 0;
+  word-break: break-word;
+  font-family: var(--cme-font-mono);
+}
+
+/* ── Logon breakdown bars ───────────────────────────────────────────────────── */
+
+.cme-breakdown {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.cme-breakdown-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 54px;
+  align-items: center;
+  gap: 8px;
+}
+
+.cme-breakdown-label {
+  font-size: 11px;
+  color: var(--cme-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cme-breakdown-bar-wrap {
+  background: rgba(255,255,255,0.06);
+  border-radius: 3px;
+  height: 6px;
+  overflow: hidden;
+}
+
+.cme-breakdown-bar {
+  display: block;
+  height: 100%;
+  background: var(--cme-accent);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.cme-breakdown-val {
+  font-size: 11px;
+  color: var(--cme-text);
+  font-family: var(--cme-font-mono);
+  text-align: right;
+}
+
+/* ── Warning / Error ────────────────────────────────────────────────────────── */
+
+.cme-warning {
+  background: rgba(245, 158, 11, 0.1);
+  border-left: 3px solid var(--cme-warning);
+  color: var(--cme-warning);
+  font-size: 12px;
+  padding: 8px 14px;
+  margin: 0;
+}
+
+.cme-error {
+  padding: 20px 14px;
+  text-align: center;
+  color: var(--cme-text-muted);
+}
+
+.cme-error-icon {
+  font-size: 24px;
+  display: block;
+  margin-bottom: 8px;
+  color: var(--cme-warning);
+}
+
+.cme-error p {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--cme-text-muted);
+}
+
+.cme-btn {
+  background: var(--cme-accent);
+  color: #fff;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+
+.cme-btn:hover {
+  background: var(--cme-accent-dim);
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────────── */
+
+.cme-footer {
+  padding: 8px 14px;
+  border-top: 1px solid var(--cme-border);
+  font-size: 11px;
+  color: var(--cme-text-label);
+  background: var(--cme-bg-elevated);
+}
+
+.cme-footer a {
+  color: var(--cme-accent);
+  text-decoration: none;
+}
+
+.cme-footer a:hover {
+  text-decoration: underline;
+}
+
+/* ── Skeleton loader ────────────────────────────────────────────────────────── */
+
+.cme-skeleton {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cme-skeleton-row {
+  height: 14px;
+  background: linear-gradient(
+    90deg,
+    var(--cme-bg-elevated) 25%,
+    rgba(255,255,255,0.05) 50%,
+    var(--cme-bg-elevated) 75%
+  );
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: cme-shimmer 1.5s infinite;
+}
+
+.cme-skeleton-row.short {
+  width: 55%;
+}
+
+@keyframes cme-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Scrollbar (Webkit) ─────────────────────────────────────────────────────── */
+
+#cme-panel-root::-webkit-scrollbar {
+  width: 5px;
+}
+#cme-panel-root::-webkit-scrollbar-track {
+  background: var(--cme-bg);
+}
+#cme-panel-root::-webkit-scrollbar-thumb {
+  background: var(--cme-border);
+  border-radius: 3px;
+}
